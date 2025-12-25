@@ -2,6 +2,7 @@
 Improved Trading Bot - Main Orchestrator
 Integrates all modules for safe, high-quality trade recommendations.
 Supports EOY mode with relaxed filters for end-of-year markets.
+Now uses Dual AI (GPT-4o-mini + Grok) for ensemble forecasting.
 """
 import os
 import json
@@ -11,8 +12,6 @@ from typing import Optional, List, Dict
 from pathlib import Path
 from dotenv import load_dotenv
 
-from langchain_openai import ChatOpenAI
-
 from agents.trading.api_client import PolymarketAPIClient, Market
 from agents.trading.filters import MarketFilter, FilterConfig, get_relaxed_config, get_eoy_config, get_test_config
 from agents.trading.edge_model import EdgeDetector, EdgeConfig, EdgeAnalysis, TradeAction, parse_model_probability, get_relaxed_edge_config
@@ -20,6 +19,7 @@ from agents.trading.position_sizing import PositionSizer, PositionConfig
 from agents.trading.recommendation_generator import RecommendationGenerator
 from agents.trading.email_sender import EmailSender
 from agents.trading.bracket_strategy import BracketDetector, BracketStrategyGenerator, BracketStrategy
+from agents.trading.dual_forecaster import DualForecaster, ForecastResult
 from agents.application.prompts import Prompter
 from agents.connectors.search import tavily_client
 from agents.connectors.news import News
@@ -117,11 +117,8 @@ class ImprovedTrader:
         self.recommendation_gen = RecommendationGenerator()
         self.position_tracker = PositionTracker()
         
-        # LLM for forecasting
-        self.llm = ChatOpenAI(
-            model="gpt-3.5-turbo-16k",
-            temperature=0,
-        )
+        # Dual AI forecaster (GPT-4o-mini + Grok)
+        self.forecaster = DualForecaster()
         self.prompter = Prompter()
         self.news = News()
         
@@ -293,12 +290,30 @@ class ImprovedTrader:
         """Analyze a single market for trading opportunity"""
         logger.info(f"\n--- Analyzing: {market.question[:60]}...")
         
+        self._last_forecast = None  # Reset forecast tracking
+        
         try:
             # Get real-time context
             context = self._gather_context(market.question)
             
-            # Get LLM forecast
+            # Get dual AI forecast
             model_prob, outcome = self._get_llm_forecast(market, context)
+            
+            # Check if AIs disagree (skip trade if so)
+            if self._last_forecast and self._last_forecast.should_skip:
+                logger.warning(f"⚠️ SKIPPING: AI disagreement on {market.question[:40]}...")
+                # Still track for summary but mark as skipped
+                self.analyzed_markets.append({
+                    "question": market.question,
+                    "model_prob": model_prob or 0.5,
+                    "market_price": market.yes_price,
+                    "edge": 0,
+                    "action": "AI_DISAGREE",
+                    "url": market.market_url,
+                    "slug": getattr(market, 'slug', None),
+                    "ai_agreement": self._last_forecast.agreement if self._last_forecast else 0
+                })
+                return None
             
             if model_prob is None:
                 logger.warning(f"Could not parse LLM probability for market {market.id}")
@@ -321,6 +336,15 @@ class ImprovedTrader:
             logger.info(f"Edge analysis: {analysis.reason}")
             
             # Track for summary
+            ai_info = {}
+            if self._last_forecast:
+                ai_info = {
+                    "ai_agreement": self._last_forecast.agreement,
+                    "ai_confidence": self._last_forecast.confidence,
+                    "gpt_prob": self._last_forecast.gpt_prob,
+                    "grok_prob": self._last_forecast.grok_prob,
+                }
+            
             self.analyzed_markets.append({
                 "question": market.question,
                 "model_prob": yes_prob,
@@ -328,7 +352,8 @@ class ImprovedTrader:
                 "edge": analysis.edge_percent,
                 "action": analysis.recommended_action.value,
                 "url": market.market_url,
-                "slug": getattr(market, 'slug', None)
+                "slug": getattr(market, 'slug', None),
+                **ai_info
             })
             
             if not analysis.meets_threshold:
@@ -394,7 +419,7 @@ class ImprovedTrader:
         return context
     
     def _get_llm_forecast(self, market: Market, context: str) -> tuple:
-        """Get probability forecast from LLM"""
+        """Get probability forecast from dual AI (GPT-4o-mini + Grok)"""
         prompt = self.prompter.superforecaster(
             question=market.question,
             description=market.description,
@@ -402,12 +427,22 @@ class ImprovedTrader:
             realtime_context=context
         )
         
-        result = self.llm.invoke(prompt)
-        response = result.content
+        # Use dual AI forecaster
+        result = self.forecaster.forecast(
+            question=market.question,
+            description=market.description,
+            outcomes=market.outcomes,
+            context=context,
+            prompt_template=prompt
+        )
         
-        logger.debug(f"LLM response: {response[:200]}...")
+        # Log the dual AI result
+        logger.info(f"📊 Dual AI: {result.reasoning}")
         
-        return parse_model_probability(response)
+        # Store the forecast result for later use
+        self._last_forecast = result
+        
+        return result.probability, result.outcome
     
     def _detect_bracket_strategies(self, markets: List[Market]):
         """Detect and generate bracket strategies for related markets"""
