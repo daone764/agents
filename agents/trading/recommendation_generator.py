@@ -14,6 +14,14 @@ from agents.trading.position_sizing import PositionRecommendation
 
 logger = logging.getLogger(__name__)
 
+# Import bracket strategy types (optional - graceful fallback if not available)
+try:
+    from agents.trading.bracket_strategy import BracketStrategy, BracketStrategyGenerator
+    BRACKET_SUPPORT = True
+except ImportError:
+    BRACKET_SUPPORT = False
+    BracketStrategy = None
+
 
 class RecommendationGenerator:
     """
@@ -455,7 +463,8 @@ These markets almost passed our filters and may be worth a look:
         trades_recommended: int,
         rejections_by_reason: dict,
         near_misses: List[Dict] = None,
-        analyzed_markets: List[Dict] = None
+        analyzed_markets: List[Dict] = None,
+        bracket_strategies: List = None
     ) -> str:
         """Generate beautiful HTML daily summary report"""
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -583,6 +592,16 @@ These markets almost passed our filters and may be worth a look:
         </div>
         '''
         
+        # Build bracket strategies HTML
+        bracket_section_html = ""
+        if bracket_strategies and BRACKET_SUPPORT:
+            generator = BracketStrategyGenerator()
+            bracket_css = generator.get_bracket_css()
+            for strategy in bracket_strategies:
+                bracket_section_html += generator.format_strategy_html(strategy)
+        else:
+            bracket_css = ""
+        
         # Assemble full HTML
         html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -591,6 +610,7 @@ These markets almost passed our filters and may be worth a look:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Polymarket Trading Report - {datetime.now().strftime("%Y-%m-%d")}</title>
     {self._get_html_styles()}
+    <style>{bracket_css}</style>
 </head>
 <body>
     <div class="container">
@@ -617,6 +637,8 @@ These markets almost passed our filters and may be worth a look:
                 <div class="label">Hit Rate</div>
             </div>
         </div>
+        
+        {bracket_section_html}
         
         {recommended_section_html}
         
@@ -673,7 +695,8 @@ These markets almost passed our filters and may be worth a look:
         trades_recommended: int,
         rejections_by_reason: dict,
         near_misses: List[Dict] = None,
-        analyzed_markets: List[Dict] = None
+        analyzed_markets: List[Dict] = None,
+        bracket_strategies: List = None
     ) -> str:
         """Generate daily summary report with tables and highlighted recommendations"""
         summary = f"""
@@ -696,6 +719,12 @@ REJECTION BREAKDOWN
 """
         for reason, count in sorted(rejections_by_reason.items(), key=lambda x: -x[1]):
             summary += f"  - {reason}: {count}\n"
+        
+        # Add bracket strategies (combined strategies for related markets)
+        if bracket_strategies and BRACKET_SUPPORT:
+            generator = BracketStrategyGenerator()
+            for strategy in bracket_strategies:
+                summary += generator.format_strategy_text(strategy)
         
         # Add analyzed markets with table format and highlights
         if analyzed_markets and len(analyzed_markets) > 0:

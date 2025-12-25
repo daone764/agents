@@ -19,6 +19,7 @@ from agents.trading.edge_model import EdgeDetector, EdgeConfig, EdgeAnalysis, Tr
 from agents.trading.position_sizing import PositionSizer, PositionConfig
 from agents.trading.recommendation_generator import RecommendationGenerator
 from agents.trading.email_sender import EmailSender
+from agents.trading.bracket_strategy import BracketDetector, BracketStrategyGenerator, BracketStrategy
 from agents.application.prompts import Prompter
 from agents.connectors.search import tavily_client
 from agents.connectors.news import News
@@ -163,6 +164,11 @@ class ImprovedTrader:
         self.markets_passed_filter = 0
         self.trades_recommended = 0
         self.analyzed_markets: List[Dict] = []  # Track analyzed markets for summary
+        self.bracket_strategies: List[BracketStrategy] = []  # Track bracket strategies
+        
+        # Bracket detector for combined strategies
+        self.bracket_detector = BracketDetector()
+        self.bracket_generator = BracketStrategyGenerator(self.bracket_detector)
     
     def run_analysis(self, max_markets: int = 500) -> List[str]:
         """
@@ -233,6 +239,10 @@ class ImprovedTrader:
                     logger.info("Reached maximum concurrent positions")
                     break
         
+        # Step 3.5: Detect bracket strategies (combined bets on related markets)
+        logger.info("\n📊 Detecting bracket strategies...")
+        self._detect_bracket_strategies(markets)
+        
         # Step 4: Generate summary (both text and HTML)
         logger.info("\n📋 Generating daily summary...")
         
@@ -243,7 +253,8 @@ class ImprovedTrader:
             trades_recommended=self.trades_recommended,
             rejections_by_reason=self._get_all_rejections(),
             near_misses=near_misses,
-            analyzed_markets=self.analyzed_markets
+            analyzed_markets=self.analyzed_markets,
+            bracket_strategies=self.bracket_strategies
         )
         summary_file = self.recommendation_gen.save_recommendation(summary, "daily_summary")
         
@@ -254,7 +265,8 @@ class ImprovedTrader:
             trades_recommended=self.trades_recommended,
             rejections_by_reason=self._get_all_rejections(),
             near_misses=near_misses,
-            analyzed_markets=self.analyzed_markets
+            analyzed_markets=self.analyzed_markets,
+            bracket_strategies=self.bracket_strategies
         )
         html_file = self.recommendation_gen.save_html(html_report, "trading_report")
         logger.info(f"📄 HTML report saved: {html_file}")
@@ -396,6 +408,45 @@ class ImprovedTrader:
         logger.debug(f"LLM response: {response[:200]}...")
         
         return parse_model_probability(response)
+    
+    def _detect_bracket_strategies(self, markets: List[Market]):
+        """Detect and generate bracket strategies for related markets"""
+        try:
+            # Group markets by topic
+            bracket_groups = self.bracket_detector.group_related_markets(markets)
+            
+            if not bracket_groups:
+                logger.info("No bracket market groups detected")
+                return
+            
+            logger.info(f"Found {len(bracket_groups)} potential bracket groups")
+            
+            for topic, brackets in bracket_groups.items():
+                logger.info(f"  - {topic}: {len(brackets)} brackets")
+                
+                # Build model forecasts from analyzed markets
+                model_forecasts = {}
+                for bracket in brackets:
+                    # Try to find matching analyzed market
+                    for am in self.analyzed_markets:
+                        if am.get('question', '').startswith(bracket.market.question[:30]):
+                            model_forecasts[bracket.bracket_label] = am.get('model_prob', bracket.yes_price)
+                            break
+                
+                # Generate strategy
+                strategy = self.bracket_generator.generate_strategy(topic, brackets, model_forecasts)
+                
+                if strategy and strategy.recommended_trades:
+                    self.bracket_strategies.append(strategy)
+                    logger.info(f"✅ Bracket strategy generated for: {topic}")
+                    
+                    # Print text summary to console
+                    print(self.bracket_generator.format_strategy_text(strategy))
+            
+        except Exception as e:
+            logger.warning(f"Bracket detection failed: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _get_all_rejections(self) -> dict:
         """Combine all rejection reasons"""
