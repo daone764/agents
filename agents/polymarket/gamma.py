@@ -10,6 +10,16 @@ class GammaMarketClient:
         self.gamma_url = "https://gamma-api.polymarket.com"
         self.gamma_markets_endpoint = self.gamma_url + "/markets"
         self.gamma_events_endpoint = self.gamma_url + "/events"
+    
+    def get_markets_by_tag(self, tag: str, limit: int = 50) -> "list[Market]":
+        """Get markets filtered by tag/category (e.g., 'politics', 'sports', 'crypto')"""
+        return self.get_markets(querystring_params={
+            "tag": tag,
+            "active": True,
+            "closed": False,
+            "archived": False,
+            "limit": limit
+        })
 
     def parse_pydantic_market(self, market_object: dict) -> Market:
         try:

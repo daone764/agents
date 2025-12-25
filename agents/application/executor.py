@@ -12,9 +12,19 @@ from langchain_openai import ChatOpenAI
 
 from agents.polymarket.gamma import GammaMarketClient as Gamma
 from agents.connectors.chroma import PolymarketRAG as Chroma
+from agents.connectors.search import tavily_client
+from agents.connectors.news import News
 from agents.utils.objects import SimpleEvent, SimpleMarket
 from agents.application.prompts import Prompter
 from agents.polymarket.polymarket import Polymarket
+
+# Optional: Import finance data if available
+try:
+    from agents.connectors.finance import FinanceData
+    FINANCE_AVAILABLE = True
+except ImportError:
+    FINANCE_AVAILABLE = False
+    print("⚠️ Yahoo Finance not available - financial data disabled")
 
 def retain_keys(data, keys_to_retain):
     if isinstance(data, dict):
@@ -42,6 +52,9 @@ class Executor:
         self.gamma = Gamma()
         self.chroma = Chroma()
         self.polymarket = Polymarket()
+        self.news = News()
+        self.finance = FinanceData() if FINANCE_AVAILABLE else None
+        self.use_realtime_data = os.getenv("USE_REALTIME_DATA", "true").lower() == "true"
 
     def get_llm_response(self, user_input: str) -> str:
         system_message = SystemMessage(content=str(self.prompter.market_analyst()))
@@ -162,9 +175,48 @@ class Executor:
         question = market["question"]
         description = market_document["page_content"]
 
-        prompt = self.prompter.superforecaster(question, description, outcomes)
+        # Gather real-time information
+        realtime_context = ""
+        if self.use_realtime_data:
+            print("\n🔍 Gathering real-time information...")
+            
+            # 1. Get financial data from Yahoo Finance (if available)
+            if self.finance:
+                try:
+                    finance_context = self.finance.get_financial_context(question)
+                    if finance_context:
+                        realtime_context += finance_context
+                        print(f"   ✅ Yahoo Finance: {len(finance_context)} chars of financial data")
+                except Exception as e:
+                    print(f"   ⚠️ Yahoo Finance failed: {e}")
+            
+            # 2. Get current facts from Tavily web search
+            try:
+                search_context = tavily_client.get_search_context(query=question, max_results=5)
+                print(f"   ✅ Tavily: Found {len(search_context)} chars of context")
+                realtime_context += f"\n\n**Current Web Search Results:**\n{search_context}\n"
+            except Exception as e:
+                print(f"   ⚠️ Tavily search failed: {e}")
+            
+            # 3. Get recent news from News API
+            try:
+                news_articles = self.news.get_articles_for_options([question], date_start=None, date_end=None)
+                if news_articles:
+                    news_summary = "\n**Recent News:**\n"
+                    for keyword, articles in news_articles.items():
+                        for article in articles[:3]:  # Top 3 articles
+                            news_summary += f"- {article.get('title', 'No title')}: {article.get('description', '')}\n"
+                    realtime_context += news_summary
+                    print(f"   ✅ News API: Found {len(news_articles)} articles")
+            except Exception as e:
+                print(f"   ⚠️ News API failed: {e}")
+            
+            print(f"   📊 Total context gathered: {len(realtime_context)} chars\n")
+
+        # Pass real-time context to OpenAI for superforecasting
+        prompt = self.prompter.superforecaster(question, description, outcomes, realtime_context)
         print()
-        print("... prompting ... ", prompt)
+        print("... prompting ... ", prompt[:500] + "...")
         print()
         result = self.llm.invoke(prompt)
         content = result.content

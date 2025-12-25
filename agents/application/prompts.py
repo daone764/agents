@@ -109,11 +109,22 @@ class Prompter:
         """
         )
 
-    def superforecaster(self, question: str, description: str, outcome: str) -> str:
+    def superforecaster(self, question: str, description: str, outcome: str, realtime_context: str = "") -> str:
+        context_section = ""
+        if realtime_context:
+            context_section = f"""
+        **IMPORTANT - Current Real-Time Information:**
+        {realtime_context}
+        
+        Use this current information to inform your prediction. This data is from TODAY and should be weighted heavily in your analysis.
+        """
+        
         return f"""
         You are a Superforecaster tasked with correctly predicting the likelihood of events.
         Use the following systematic process to develop an accurate prediction for the following
         question=`{question}` and description=`{description}` combination. 
+        
+        {context_section}
         
         Here are the key steps to use in your analysis:
 

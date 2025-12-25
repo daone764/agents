@@ -5,6 +5,7 @@ import time
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import JSONLoader
 from langchain_community.vectorstores.chroma import Chroma
+from langchain_core.documents import Document
 
 from agents.polymarket.gamma import GammaMarketClient
 from agents.utils.objects import SimpleEvent, SimpleMarket
@@ -19,10 +20,14 @@ class PolymarketRAG:
     def load_json_from_local(
         self, json_file_path=None, vector_db_directory="./local_db"
     ) -> None:
-        loader = JSONLoader(
-            file_path=json_file_path, jq_schema=".[].description", text_content=False
-        )
-        loaded_docs = loader.load()
+        # Windows-compatible: Load JSON manually without jq
+        with open(json_file_path, 'r') as f:
+            data = json.load(f)
+        
+        loaded_docs = []
+        for record in data:
+            content = record.get("description", "")
+            loaded_docs.append(Document(page_content=content))
 
         embedding_function = OpenAIEmbeddings(model="text-embedding-3-small")
         Chroma.from_documents(
@@ -72,14 +77,16 @@ class PolymarketRAG:
 
             return metadata
 
-        loader = JSONLoader(
-            file_path=local_file_path,
-            jq_schema=".[]",
-            content_key="description",
-            text_content=False,
-            metadata_func=metadata_func,
-        )
-        loaded_docs = loader.load()
+        # Windows-compatible: Load JSON manually without jq
+        with open(local_file_path, 'r') as f:
+            data = json.load(f)
+        
+        loaded_docs = []
+        for record in data:
+            content = record.get("description", "")
+            metadata = metadata_func(record, {})
+            loaded_docs.append(Document(page_content=content, metadata=metadata))
+        
         embedding_function = OpenAIEmbeddings(model="text-embedding-3-small")
         vector_db_directory = f"{local_events_directory}/chroma"
         local_db = Chroma.from_documents(
@@ -109,14 +116,16 @@ class PolymarketRAG:
 
             return metadata
 
-        loader = JSONLoader(
-            file_path=local_file_path,
-            jq_schema=".[]",
-            content_key="description",
-            text_content=False,
-            metadata_func=metadata_func,
-        )
-        loaded_docs = loader.load()
+        # Windows-compatible: Load JSON manually without jq
+        with open(local_file_path, 'r') as f:
+            data = json.load(f)
+        
+        loaded_docs = []
+        for record in data:
+            content = record.get("description", "")
+            metadata = metadata_func(record, {})
+            loaded_docs.append(Document(page_content=content, metadata=metadata))
+        
         embedding_function = OpenAIEmbeddings(model="text-embedding-3-small")
         vector_db_directory = f"{local_events_directory}/chroma"
         local_db = Chroma.from_documents(

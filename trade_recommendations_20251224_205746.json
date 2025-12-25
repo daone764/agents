@@ -1,0 +1,24 @@
+{
+  "executed": false,
+  "timestamp": "2025-12-24T20:57:46.593028",
+  "count": 1,
+  "recommendations": [
+    {
+      "timestamp": "2025-12-24T20:57:46.280186",
+      "market": {
+        "question": "Will Alphabet be the largest company in the world by market cap on December 31?",
+        "outcomes": "[\"Yes\", \"No\"]",
+        "current_prices": "[\"0.0025\", \"0.9975\"]",
+        "description": "This market will resolve to \"Yes\" if Alphabet (GOOG) is the largest company in the world by market cap on December 31, 2025, as of market close. Otherwise, this market will resolve to \"No\".\n\nThe resol...",
+        "end_date": null
+      },
+      "recommendation": {
+        "price": 0.6,
+        "size": 0.2,
+        "side": "BUY",
+        "raw": "RESPONSE```\n            price:0.6,\n            size:0.2,\n            side:BUY,\n        ```"
+      },
+      "amount_usdc": 0.7935472
+    }
+  ]
+}
