@@ -27,3 +27,13 @@ archive.zip
 .cache
 .DS_Store
 local_db*
+# Generated reports
+daily_summary_*.txt
+trade_rec_*.txt
+trade_recommendation_*.txt
+trade_recommendation_*.json
+trade_recommendations_*.json
+trading_report_*.html
+no_trade_*.txt
+active_positions.json
+*.spec
