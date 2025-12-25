@@ -1,0 +1,19 @@
+{
+  "positions": [
+    {
+      "market_id": "537484",
+      "question": "Will the U.S. collect less than $100b in revenue i",
+      "action": "BUY_YES",
+      "amount": 1.25,
+      "timestamp": "2025-12-24T23:25:22.072779"
+    },
+    {
+      "market_id": "537485",
+      "question": "Will the U.S. collect between $100b and $200b in r",
+      "action": "BUY_YES",
+      "amount": 1.25,
+      "timestamp": "2025-12-24T23:25:26.456051"
+    }
+  ],
+  "count": 2
+}

@@ -6,6 +6,7 @@ import shutil
 import json
 import re
 from datetime import datetime
+import random
 
 
 class Trader:
@@ -177,14 +178,25 @@ class Trader:
             filtered_markets = self.agent.filter_markets(markets)
             print(f"4. FILTERED {len(filtered_markets)} MARKETS")
 
+            # TODO: Re-enable date filtering once market data format is confirmed
+            # Currently all markets are being filtered out - need to debug date format
+            print(f"4.5. DATE FILTER TEMPORARILY DISABLED FOR TESTING")
+
+            if not filtered_markets:
+                raise ValueError("No markets available after filtering")
+
+            random.shuffle(filtered_markets)
             market = filtered_markets[0]
-            best_trade = self.agent.source_best_trade(market)
-            print(f"5. CALCULATED TRADE {best_trade}")
+            
+            # Get full analysis including superforecasting reasoning
+            full_analysis = self.agent.source_best_trade(market)
+            print(f"5. CALCULATED TRADE {full_analysis}")
 
             # Parse trade recommendation
-            trade_data = self._parse_trade_recommendation(best_trade, market)
+            trade_data = self._parse_trade_recommendation(full_analysis, market)
+            trade_data["full_analysis"] = full_analysis  # Save complete analysis
             
-            amount = self.agent.format_trade_prompt_for_execution(best_trade)
+            amount = self.agent.format_trade_prompt_for_execution(full_analysis)
             
             # Print clean summary
             self._print_trade_summary(trade_data, execute, amount)
@@ -212,6 +224,7 @@ class Trader:
     def _parse_trade_recommendation(self, best_trade: str, market) -> dict:
         """Extract trade details from AI recommendation"""
         try:
+            import ast
             # Extract price, size, side from the response
             price_match = re.search(r'price[:\s]*([0-9.]+)', best_trade)
             size_match = re.search(r'size[:\s]*([0-9.]+)', best_trade)
@@ -220,12 +233,21 @@ class Trader:
             market_doc = market[0].dict()
             market_meta = market_doc["metadata"]
             
+            # Parse outcomes and prices properly
+            outcomes = market_meta["outcomes"]
+            if isinstance(outcomes, str):
+                outcomes = ast.literal_eval(outcomes)
+            
+            prices = market_meta["outcome_prices"]
+            if isinstance(prices, str):
+                prices = ast.literal_eval(prices)
+            
             return {
                 "timestamp": datetime.now().isoformat(),
                 "market": {
                     "question": market_meta["question"],
-                    "outcomes": market_meta["outcomes"],
-                    "current_prices": market_meta["outcome_prices"],
+                    "outcomes": outcomes,
+                    "current_prices": prices,
                     "description": market_doc["page_content"][:200] + "...",
                     "end_date": market_meta.get("end", None)
                 },
@@ -269,17 +291,85 @@ class Trader:
         print("="*80 + "\n")
 
     def _save_trade_recommendation(self, trade_data: dict, executed: bool):
-        """Save trade recommendation to a JSON file"""
+        """Save trade recommendation to JSON and readable text file"""
         try:
             trade_data["executed"] = executed
-            filename = f"trade_recommendation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            with open(filename, 'w') as f:
+            # Save JSON version
+            json_filename = f"trade_recommendation_{timestamp}.json"
+            with open(json_filename, 'w') as f:
                 json.dump(trade_data, f, indent=2)
             
-            print(f"📁 Recommendation saved to: {filename}")
+            # Save human-readable version
+            txt_filename = f"trade_recommendation_{timestamp}.txt"
+            self._save_readable_recommendation(trade_data, txt_filename)
+            
+            print(f"📁 Recommendation saved to: {json_filename}")
+            print(f"📄 Human-readable version: {txt_filename}")
         except Exception as e:
             print(f"Warning: Could not save recommendation to file: {e}")
+    
+    def _save_readable_recommendation(self, trade_data: dict, filename: str):
+        """Save a clean, human-readable recommendation to a text file"""
+        market = trade_data.get("market", {})
+        rec = trade_data.get("recommendation", {})
+        full_analysis = trade_data.get("full_analysis", "")
+        
+        outcomes = market.get('outcomes', ['Yes', 'No'])
+        prices = market.get('current_prices', [])
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("POLYMARKET TRADE RECOMMENDATION\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}\n\n")
+            
+            f.write("MARKET DETAILS\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Question: {market.get('question', 'N/A')}\n")
+            f.write(f"Outcomes: {', '.join(outcomes) if isinstance(outcomes, list) else str(outcomes)}\n")
+            f.write(f"Current YES Price: ${prices[0] if prices and len(prices) > 0 else 'N/A'}\n")
+            f.write(f"Current NO Price: ${prices[1] if prices and len(prices) > 1 else 'N/A'}\n\n")
+            
+            # Extract and format the superforecasting analysis
+            if full_analysis:
+                f.write("AI SUPERFORECASTING ANALYSIS\n")
+                f.write("-" * 80 + "\n")
+                
+                # Split on "TRADE RECOMMENDATION:" to separate forecast from trade
+                parts = full_analysis.split("TRADE RECOMMENDATION:")
+                forecast_text = parts[0].strip()
+                
+                # Clean up the forecast text
+                f.write(forecast_text)
+                f.write("\n\n")
+            
+            f.write("TRADE RECOMMENDATION\n")
+            f.write("-" * 80 + "\n")
+            side = rec.get('side', 'N/A')
+            price = rec.get('price', 'N/A')
+            size_pct = rec.get('size', 0) * 100 if rec.get('size') else 'N/A'
+            
+            f.write(f"ACTION: {side}\n")
+            f.write(f"Outcome to buy: {'YES' if side == 'BUY' else 'NO' if side == 'SELL' else 'N/A'}\n")
+            f.write(f"Target Price: ${price}\n")
+            f.write(f"Position Size: {size_pct}% of your balance\n\n")
+            
+            f.write("HOW TO EXECUTE ON POLYMARKET\n")
+            f.write("-" * 80 + "\n")
+            f.write("1. Go to: polymarket.com\n")
+            f.write("2. Search for the market question above\n")
+            f.write(f"3. Select the '{('YES' if side == 'BUY' else 'NO')}' outcome\n")
+            f.write(f"4. Enter your desired amount (recommended: {size_pct}% of balance)\n")
+            f.write(f"5. Set limit price to: ${price} (or use market price if close)\n")
+            f.write("6. Review and confirm your trade\n\n")
+            
+            f.write("=" * 80 + "\n")
+            f.write("DISCLAIMER: This is AI-generated advice. Do your own research.\n")
+            f.write("Trade at your own risk. Past performance doesn't guarantee future results.\n")
+            f.write("=" * 80 + "\n")
     
     def _save_multiple_recommendations(self, recommendations: list, executed: bool):
         """Save multiple trade recommendations to a JSON file"""
@@ -307,5 +397,14 @@ class Trader:
 
 
 if __name__ == "__main__":
+    import sys
+    
+    # Parse command line arguments
+    execute = False
+    if "--execute" in sys.argv:
+        idx = sys.argv.index("--execute")
+        if idx + 1 < len(sys.argv) and sys.argv[idx + 1].lower() == "true":
+            execute = True
+    
     t = Trader()
-    t.one_best_trade()
+    t.one_best_trade(execute=execute)

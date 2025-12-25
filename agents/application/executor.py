@@ -219,19 +219,21 @@ class Executor:
         print("... prompting ... ", prompt[:500] + "...")
         print()
         result = self.llm.invoke(prompt)
-        content = result.content
+        forecast_analysis = result.content
 
-        print("result: ", content)
+        print("result: ", forecast_analysis)
         print()
-        prompt = self.prompter.one_best_trade(content, outcomes, outcome_prices)
+        prompt = self.prompter.one_best_trade(forecast_analysis, outcomes, outcome_prices)
         print("... prompting ... ", prompt)
         print()
         result = self.llm.invoke(prompt)
-        content = result.content
+        trade_recommendation = result.content
 
-        print("result: ", content)
+        print("result: ", trade_recommendation)
         print()
-        return content
+        
+        # Return both forecast and trade as a combined response
+        return f"{forecast_analysis}\n\nTRADE RECOMMENDATION:\n{trade_recommendation}"
 
     def format_trade_prompt_for_execution(self, best_trade: str) -> float:
         data = best_trade.split(",")

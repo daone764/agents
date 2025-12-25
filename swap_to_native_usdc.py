@@ -1,7 +1,34 @@
 #!/usr/bin/env python3
 """
-Swap USDC.e (bridged) to native USDC on Polygon using QuickSwap
+⚠️  DEPRECATED - DO NOT USE THIS SCRIPT! ⚠️
+============================================
+This script had INCORRECT token addresses and caused ~$17 loss due to bad swap.
+
+USE INSTEAD: swap_usdc_safe.py
+
+The addresses below were WRONG:
+- USDC_BRIDGED was actually Native USDC
+- USDC_NATIVE was actually USDC.e Bridged
+
+CORRECT ADDRESSES:
+- Native USDC (Coinbase sends): 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+- USDC.e Bridged (Polymarket):  0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
 """
+
+import sys
+print("=" * 70)
+print("🚨 THIS SCRIPT IS DEPRECATED AND DANGEROUS!")
+print("=" * 70)
+print()
+print("This script had WRONG token addresses and lost ~$17 to bad swap.")
+print()
+print("Please use the SAFE version instead:")
+print("   python swap_usdc_safe.py")
+print()
+print("=" * 70)
+sys.exit(1)
+
+# OLD BROKEN CODE BELOW - DO NOT USE
 from web3 import Web3
 from eth_account import Account
 import os
