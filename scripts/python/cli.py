@@ -7,6 +7,7 @@ from agents.connectors.news import News
 from agents.application.trade import Trader
 from agents.application.executor import Executor
 from agents.application.creator import Creator
+from agents.trading.improved_trader import ImprovedTrader
 
 app = typer.Typer()
 # Lazy load clients to avoid credential requirements for help
@@ -265,8 +266,8 @@ def run_autonomous_trader(execute: bool = False) -> None:
     Compute a best trade and optionally execute it.
     Set --execute true only if you comply with Polymarket TOS.
     """
-    trader = Trader()
-    trader.one_best_trade(execute=execute)
+    trader = ImprovedTrader()
+    trader.run_analysis()
 
 
 if __name__ == "__main__":

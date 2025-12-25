@@ -417,7 +417,6 @@ class Polymarket:
         order_args = MarketOrderArgs(
             token_id=token_id,
             amount=amount,
-            side=BUY,
         )
         signed_order = self.client.create_market_order(order_args)
         print("Execute market order... signed_order ", signed_order)
@@ -434,7 +433,6 @@ class Polymarket:
         order_args = MarketOrderArgs(
             token_id=token_id,
             amount=amount,
-            side=BUY,
         )
         signed_order = self.client.create_market_order(order_args)
         print("Execute market order... signed_order ", signed_order)
@@ -444,10 +442,34 @@ class Polymarket:
         return resp
 
     def get_usdc_balance(self) -> float:
-        balance_res = self.usdc.functions.balanceOf(
-            self.get_active_address()
-        ).call()
-        return float(balance_res / 10e5)
+        """Get combined USDC balance (both USDC.e Bridged + Native USDC from Coinbase)"""
+        address = self.get_active_address()
+        
+        # USDC.e Bridged (what Polymarket uses for trading)
+        bridged_balance = self.usdc.functions.balanceOf(address).call()
+        bridged_amount = float(bridged_balance / 10e5)
+        
+        # Also check Native USDC (what Coinbase sends)
+        # This gives a complete picture of available funds
+        native_usdc_address = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+        try:
+            native_usdc = self.web3.eth.contract(
+                address=native_usdc_address, 
+                abi=self.erc20_approve
+            )
+            native_balance = native_usdc.functions.balanceOf(address).call()
+            native_amount = float(native_balance / 10e5)
+        except Exception:
+            native_amount = 0.0
+        
+        total = bridged_amount + native_amount
+        
+        # Log the breakdown if there's native USDC
+        if native_amount > 0.01:
+            print(f"[*] Balance: ${bridged_amount:.2f} USDC.e (tradeable) + ${native_amount:.2f} Native USDC (needs swap)")
+            print(f"    Total: ${total:.2f} | Run 'python swap_usdc_safe.py' to convert Native->USDC.e")
+        
+        return total
     
     def get_user_positions(self) -> list:
         """

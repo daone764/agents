@@ -1,221 +1,74 @@
-# Polymarket Autonomous Trader - FIXED ✓
 
-## Summary
 
-Successfully fixed the Windows compatibility issues with the Polymarket autonomous trading agent:
+**Prompt for VS Code Agent:**
 
-### Issues Fixed
+You are an expert Python developer fixing a Polymarket trading bot that is currently generating dangerous, overconfident recommendations, especially on sports markets.
 
-1. **jq Dependency Issue** ✓
-   - Problem: Python `jq` package won't compile on Windows (requires Unix build tools)
-   - Solution: Modified `agents/connectors/chroma.py` to manually load JSON without jq
-   - Changed: JSONLoader with jq_schema → Direct JSON parsing with langchain Document objects
+The latest run (December 2025) showed catastrophic model miscalibration on Super Bowl 2026 winner markets:
+- Jacksonville Jaguars: Model 95% vs Market ~6% → recommending massive edge
+- Los Angeles Rams: Model 75% vs Market ~16%
+- San Francisco 49ers: Model 50% vs Market ~7-14%
+These are clearly wrong — no credible analysis gives the Jaguars 95% chance to win the Super Bowl.
 
-2. **0 Events Returned** ✓
-   - Problem: `get_all_tradeable_events()` filters out closed/old events, API only returns historical data
-   - Solution: Created simplified trader that works with markets directly (markets API works fine)
-   - Bypassed: Complex RAG-based event filtering
+Your task: Fix the forecasting and recommendation logic to prevent these kinds of bad trades. The bot must become conservative, calibrated, and safe for manual execution on polymarket.com.
 
-3. **System jq Command** ✓
-   - Downloaded jq-1.7.1 for Windows
-   - Installed to: C:\Users\user\jq.exe
-   - Added to PATH (though not needed for simplified version)
+Implement the following fixes in priority order:
 
-### Current Status
+1. **Add Hard Sanity Caps Based on Market Volume and Category**
+   - For any market with total volume > $100,000:
+     - Maximum allowed model probability deviation from market price: 20%
+     - Example: If market prices Yes at 10%, model cannot output >30% or <0%
+   - For Super Bowl or major championship winner markets (detect via keywords like "Super Bowl", "World Cup", "Championship", "win the"):
+     - Cap model probability at market_price + 10% max
+     - Never allow model prob > 50% on any single team unless market already >40%
+   - For any outcome priced <5¢ or >95¢, require model within 5% of market or skip
 
-**✓ WORKING:** Simple autonomous trader functional
-- File: `simple_auto_trader.py`
-- Balance: $3.97 USDC available
-- Found: 100 active markets
-- First recommendation: Buy "Yes" on "US recession in 2025?" at $0.0070 (98.6% confidence)
+2. **Add Explicit Sports Market Handling**
+   - Detect sports markets by keywords in question: "win Super Bowl", "win the", "champion", "MVP", "player prop", team names + "vs"
+   - For detected sports markets:
+     - Use a conservative model: model_prob = market_price * 1.1 + (1 - market_price) * 0.05  (slight fade of extremes)
+     - Or simply set edge threshold to 15% minimum (effectively skipping most sports unless huge mispricing)
+     - Log: "Sports market detected — applying conservative override"
 
-**✗ NOT FIXED:** Original complex autonomous trader
-- Still has Python 3.14 incompatibility (needs 3.9)
-- RAG/LangChain/Chroma complexity
-- Event-based filtering broken
+3. **Improve Edge Validation**
+   - Current edge calculation is too permissive. Add:
+     ```python
+     if abs(model_prob - market_prob) < 0.05:  # 5%
+         skip — "Insufficient edge"
+     if market_volume > 500_000 and abs(model_prob - market_prob) > 0.30:
+         skip — "Implausible deviation in high-volume market"
+     ```
+   - Require minimum volume-weighted confidence: bigger markets need bigger edges
 
-## How to Use
+4. **Prioritize Non-Sports Categories**
+   - Boost politics, economics, crypto, geopolitics
+   - Example: tariff revenue markets in the latest run (12-17% edges) are realistic — keep and promote those
+   - Demote or skip pure sports unless volume < $100k (niche = possible edge)
 
-### Simple Autonomous Trader (RECOMMENDED)
+5. **Output Improvements**
+   - In recommendations, add a "Confidence" flag: High/Medium/Low based on volume and edge realism
+   - For any recommended trade, include:
+     - "Warning: Sports market — higher risk of miscalibration" if applicable
+     - Direct Polymarket link (construct from slug or question)
+   - In daily summary, separate "Recommended (Non-Sports)" and "Sports (Review Manually)"
 
-```bash
-cd c:\Users\user\OneDrive\Desktop\polymarket\agents
-python simple_auto_trader.py
-```
+6. **Temporary Hotfix for Immediate Safety**
+   - Until better model is built, add this rule:
+     ```python
+     if "super bowl" in question.lower() and edge > 20%:
+         action = "NO_TRADE"
+         reason = "Sports miscalibration guardrail triggered"
+     ```
 
-This will:
-1. Fetch all active markets
-2. Check your USDC balance ($3.97)
-3. Analyze top 5 markets for trading opportunities
-4. Recommend a trade based on simple price analysis
-5. Show you the exact command to execute the trade
+Focus changes in edge_model.py and filters.py. Make rules modular and clearly commented.
 
-Example output:
-```
-Simple Autonomous Trader Starting...
+After these fixes, the bot should:
+- Recommend the realistic tariff revenue bets
+- Skip or heavily downgrade the absurd Super Bowl bets
+- Become safe for manual trading on polymarket.com
 
-Fetching markets...
-Found 100 active markets
+Implement step by step, starting with the sports detection and hard caps.
 
-Wallet Balance: $3.97 USDC
+---
 
-Analyzing Markets:
-
-1. US recession in 2025?
-   Ends: 2026-02-28T12:00:00Z
-   Spread: 0.0020
-   Outcomes: ['Yes', 'No']
-   Prices: ['$0.0070', '$0.9930']
-   RECOMMENDATION: Buy Yes
-   Confidence: 98.6%
-   Reasoning: Yes is trading at $0.0070, below 50%
-   Token ID: 104173557214744537570424345347209544585775842950109756851652855913015295701992
-   Suggested Amount: $0.40 USDC
-
-To execute this trade, run:
-   python scripts/python/cli.py place-market-order-by-token 104173557214744537570424345347209544585775842950109756851652855913015295701992 0.40
-```
-
-### Execute Recommended Trade
-
-After reviewing the recommendation, execute with:
-```bash
-python scripts/python/cli.py place-market-order-by-token <TOKEN_ID> <AMOUNT>
-```
-
-### Manual Market Exploration
-
-```bash
-# View all markets
-python scripts/python/cli.py get-all-markets --limit 10
-
-# Check balance
-python scripts/python/cli.py check-usdc-balance
-```
-
-## Files Modified
-
-1. **agents/connectors/chroma.py**
-   - Removed JSONLoader with jq_schema
-   - Added manual JSON parsing in 3 methods: `load_json_from_local`, `events`, `markets`
-   - Changed import: `langchain.schema.Document` → `langchain_core.documents.Document`
-
-2. **simple_auto_trader.py** (NEW)
-   - Windows-compatible autonomous trader
-   - No jq dependency
-   - No RAG/LangChain complexity
-   - Simple price-based trading logic
-   - Suggests trades with confidence scores
-
-## Wallet Status
-
-- Address: 0xd6d39c2b53599Dfb6bf237E1B04e5a3191d6d6B6
-- Native USDC: $3.97 (ready for trading)
-- USDC.e: ~$18 (bridged USDC, different contract)
-- POL (gas): ~9.5 POL
-
-## Approvals Status
-
-All approvals initialized ✓:
-- USDC approved to CTF Exchange
-- USDC approved to Neg Risk CTF Exchange
-- USDC approved to Neg Risk Adapter
-- CTF setApprovalForAll to all required addresses
-
-## Python Version Issue (NOT FIXED)
-
-- Current: Python 3.14
-- Required: Python 3.9 (per README)
-- Impact: Pydantic v1 warnings, possible subtle incompatibilities
-- Recommendation: If issues arise, install Python 3.9 virtual environment
-
-## Trading Strategy (simple_auto_trader.py)
-
-The simplified trader uses basic logic:
-1. Looks for markets where Yes or No is trading below $0.50
-2. Checks that spread is reasonable (< 10%)
-3. Recommends buying the underpriced outcome
-4. Calculates confidence: (0.50 - price) × 200%
-5. Suggests 10% of balance or $5, whichever is smaller
-
-This is a conservative approach. The original complex trader used:
-- RAG (Retrieval-Augmented Generation) with news/data
-- LangChain AI agent for market analysis
-- Chroma vector database for event filtering
-- OpenAI GPT for recommendations
-
-## Next Steps
-
-If you want the FULL autonomous trader (AI-driven with news analysis):
-
-1. **Install Python 3.9:**
-   ```bash
-   # Create Python 3.9 virtual environment
-   python3.9 -m venv .venv39
-   .venv39\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-2. **Test if it works with our jq fixes:**
-   ```bash
-   python scripts/python/cli.py run-autonomous-trader
-   ```
-
-3. **If still issues, may need to:**
-   - Rebuild Chroma compatibility
-   - Update dependencies for Python 3.14
-   - Or stick with simple trader (which works now!)
-
-## Files Installed
-
-- jq-1.7.1 → C:\Users\user\jq.exe (system command-line tool)
-- chromadb → Already installed in venv
-
-## Trading Recommendation
-
-Current market "US recession in 2025?" shows:
-- Yes: $0.0070 (0.7%)
-- No: $0.9930 (99.3%)
-
-This is a very lopsided market. The "Yes" outcome is extremely cheap ($0.007), suggesting:
-- Market consensus: ~99% chance NO recession
-- If you disagree and think recession odds are higher, buying "Yes" has huge upside
-- $0.40 investment → $57 if "Yes" wins (142x return!)
-- But also ~99% chance of losing $0.40
-
-**Recommendation:** Review market details and news before trading. This is a binary bet with extreme odds.
-
-## Manual Trading Commands
-
-```bash
-# Check balance
-python scripts/python/cli.py check-usdc-balance
-
-# View markets
-python scripts/python/cli.py get-all-markets --limit 5
-
-# Place order
-python scripts/python/cli.py place-market-order-by-token <TOKEN_ID> <AMOUNT>
-
-# Run simple autonomous recommendation
-python simple_auto_trader.py
-```
-
-## Dashboard UI
-
-The FastAPI dashboard is available:
-```bash
-# Start server (if not running)
-python scripts/python/server.py
-
-# Access in browser
-http://localhost:8888
-```
-
-## Conclusion
-
-The autonomous trading agent is now functional via the simplified `simple_auto_trader.py` script. It bypasses the Windows-incompatible jq dependency and provides trading recommendations based on market pricing.
-
-For more sophisticated AI-driven trading with news analysis, consider setting up a Python 3.9 environment as detailed above.
-
-**You now have $3.97 USDC ready to trade with automated recommendations!**
+Paste this prompt directly into your agent. After it applies the changes, run the bot again with `--relaxed` or `--eoy`. You should see clean, believable recommendations focused on politics/economics/crypto, with sports either skipped or flagged as low-confidence.
